@@ -1,98 +1,269 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
+import { useMemo, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { EditSetModal } from '@/components/edit-set-modal';
+import { ExercisePicker } from '@/components/exercise-picker';
+import { QuickSetInput } from '@/components/quick-set-input';
+import { Card, Screen, ScreenTitle, T } from '@/components/ui';
+import type { SetWithExercise } from '@/db/types';
+import { localDay, prettyDate } from '@/lib/date';
+import { useSession } from '@/store/session';
+import { colors, radius, spacing } from '@/theme';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+/** Setleri hareket bazında grupla (girildikleri sırayı koruyarak). */
+function groupByExercise(sets: SetWithExercise[]) {
+  const order: number[] = [];
+  const map = new Map<number, { name: string; muscle: string; items: SetWithExercise[] }>();
+  for (const s of sets) {
+    if (!map.has(s.exercise_id)) {
+      map.set(s.exercise_id, { name: s.exercise_name, muscle: s.muscle_group, items: [] });
+      order.push(s.exercise_id);
+    }
+    map.get(s.exercise_id)!.items.push(s);
   }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
+  return order.map((id) => ({ id, ...map.get(id)! }));
 }
 
-export default function HomeScreen() {
+export default function TodayScreen() {
+  const {
+    sets,
+    selectedExerciseId,
+    selectedExerciseName,
+    reps,
+    weight,
+    setReps,
+    setWeight,
+    commitSet,
+    removeSet,
+    selectExercise,
+    deselectExercise,
+    editingSet,
+    editReps,
+    editWeight,
+    startEditSet,
+    setEditReps,
+    setEditWeight,
+    saveEditSet,
+    cancelEditSet,
+  } = useSession();
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const groups = useMemo(() => groupByExercise(sets), [sets]);
+  const totalSets = sets.length;
+  const totalVolume = useMemo(
+    () => Math.round(sets.reduce((a, s) => a + s.reps * s.weight, 0)),
+    [sets],
+  );
+
+  const handleCommit = () => {
+    const ok = commitSet();
+    Haptics.notificationAsync(
+      ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning,
+    );
+  };
+
+  const handleSaveEdit = () => {
+    const ok = saveEditSet();
+    Haptics.notificationAsync(
+      ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning,
+    );
+  };
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+    <Screen>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <ScreenTitle>Bugün</ScreenTitle>
+            <T variant="subhead" style={{ paddingHorizontal: spacing.lg, marginTop: -spacing.sm }}>
+              {prettyDate(localDay())}
+            </T>
+          </View>
+          {!selectedExerciseId && (
+            <TouchableOpacity style={styles.addExerciseBtn} onPress={() => setPickerOpen(true)}>
+              <T variant="subhead" color={colors.text} style={{ fontWeight: '700' }}>
+                + Hareket Ekle
+              </T>
+            </TouchableOpacity>
+          )}
+        </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+        {/* Aktif hareket + hızlı giriş */}
+        {selectedExerciseId && (
+          <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.lg }}>
+            <Card elevated>
+              <View style={styles.activeHeader}>
+                <View style={{ flex: 1 }}>
+                  <T variant="footnote" color={colors.textTertiary}>
+                    AKTİF HAREKET
+                  </T>
+                  <T variant="title2" numberOfLines={1}>
+                    {selectedExerciseName}
+                  </T>
+                </View>
+                <TouchableOpacity onPress={deselectExercise} hitSlop={10} style={{ marginRight: spacing.lg }}>
+                  <T variant="subhead" color={colors.textSecondary}>
+                    Kapat
+                  </T>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setPickerOpen(true)} hitSlop={10}>
+                  <T variant="subhead" color={colors.move}>
+                    Değiştir
+                  </T>
+                </TouchableOpacity>
+              </View>
+              <QuickSetInput
+                reps={reps}
+                weight={weight}
+                onReps={setReps}
+                onWeight={setWeight}
+                onCommit={handleCommit}
+              />
+            </Card>
+          </View>
+        )}
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+        {/* Oturum özeti */}
+        {totalSets > 0 && (
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <T variant="statNumber" style={{ fontSize: 28 }}>
+                {totalSets}
+              </T>
+              <T variant="caption">SET</T>
+            </View>
+            <View style={styles.summaryItem}>
+              <T variant="statNumber" style={{ fontSize: 28 }}>
+                {groups.length}
+              </T>
+              <T variant="caption">HAREKET</T>
+            </View>
+            <View style={styles.summaryItem}>
+              <T variant="statNumber" style={{ fontSize: 28 }}>
+                {totalVolume}
+              </T>
+              <T variant="caption">HACİM (KG)</T>
+            </View>
+          </View>
+        )}
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+        {/* Girilen setler */}
+        <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+          {groups.map((g) => (
+            <Card key={g.id} style={{ marginTop: spacing.md }}>
+              <View style={styles.groupHead}>
+                <T variant="headline">{g.name}</T>
+                <T variant="footnote">{g.muscle}</T>
+              </View>
+              {g.items.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={styles.setRow}
+                  onPress={() => startEditSet(s)}
+                  onLongPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    Alert.alert('Seti sil', `${s.set_number}. set silinsin mi?`, [
+                      { text: 'Vazgeç', style: 'cancel' },
+                      { text: 'Sil', style: 'destructive', onPress: () => removeSet(s.id) },
+                    ]);
+                  }}>
+                  <View style={styles.setBadge}>
+                    <T variant="footnote" color={colors.textSecondary}>
+                      {s.set_number}
+                    </T>
+                  </View>
+                  <T variant="body" style={{ flex: 1 }}>
+                    {s.reps} tekrar
+                  </T>
+                  <T variant="headline">{s.weight > 0 ? `${s.weight} kg` : 'vücut'}</T>
+                </TouchableOpacity>
+              ))}
+            </Card>
+          ))}
+
+          {totalSets === 0 && !selectedExerciseId && (
+            <View style={styles.empty}>
+              <T variant="subhead" style={{ textAlign: 'center' }}>
+                Henüz set yok. Yukarıdan bir hareket ekleyerek başla.
+              </T>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      <ExercisePicker
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(id, name) => selectExercise(id, name)}
+      />
+
+      <EditSetModal
+        visible={editingSet != null}
+        exerciseName={editingSet?.exercise_name ?? ''}
+        reps={editReps}
+        weight={editWeight}
+        onReps={setEditReps}
+        onWeight={setEditWeight}
+        onSave={handleSaveEdit}
+        onDelete={() => {
+          if (editingSet) removeSet(editingSet.id);
+          cancelEditSet();
+        }}
+        onClose={cancelEditSet}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
+  activeHeader: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.lg,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
   },
-  heroSection: {
+  addExerciseBtn: {
+    backgroundColor: colors.move,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginRight: spacing.lg,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.lg,
+  },
+  summaryItem: { alignItems: 'center' },
+  groupHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  setRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+  },
+  setBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    backgroundColor: colors.cardElevated,
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
   },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
+  empty: { paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg },
 });
