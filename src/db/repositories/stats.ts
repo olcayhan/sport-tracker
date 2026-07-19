@@ -47,46 +47,42 @@ export function currentStreak(): number {
   return streak;
 }
 
-export interface Summary {
-  workoutsThisMonth: number;
-  volumeThisMonth: number;
-  topMuscle: string | null;
-  totalWorkouts: number;
+export interface PeriodSummary {
+  trainedDays: number;
+  volume: number; // Σ reps*weight, yuvarlanmış
 }
 
-/** Dashboard özet kutucukları için toplu istatistikler. */
-export function summary(): Summary {
-  const monthStart = localDay().slice(0, 7) + '-01';
+/** [fromDay, toDay] aralığında antrenman yapılan gün sayısı ve toplam hacim. */
+export function periodSummary(fromDay: string, toDay: string): PeriodSummary {
+  const row = db.getFirstSync<{ days: number; volume: number }>(
+    `SELECT COUNT(DISTINCT w.date) AS days, COALESCE(SUM(s.reps * s.weight), 0) AS volume
+     FROM workouts w JOIN sets s ON s.workout_id = w.id
+     WHERE w.date BETWEEN ? AND ?`,
+    [fromDay, toDay],
+  );
+  return { trainedDays: row?.days ?? 0, volume: Math.round(row?.volume ?? 0) };
+}
 
-  const w = db.getFirstSync<{ c: number }>(
-    `SELECT COUNT(DISTINCT w.date) AS c
-     FROM workouts w JOIN sets s ON s.workout_id = w.id
-     WHERE w.date >= ?`,
-    [monthStart],
-  );
-  const vol = db.getFirstSync<{ v: number }>(
-    `SELECT COALESCE(SUM(s.reps * s.weight), 0) AS v
-     FROM workouts w JOIN sets s ON s.workout_id = w.id
-     WHERE w.date >= ?`,
-    [monthStart],
-  );
-  const muscle = db.getFirstSync<{ muscle_group: string }>(
+export interface TopMuscle {
+  muscleGroup: string;
+  sets: number;
+  pct: number; // dönemdeki toplam set içindeki payı (0-100, yuvarlanmış)
+}
+
+/** [fromDay, toDay] aralığında en çok çalışılan kas grubu ve payı. */
+export function topMuscleGroup(fromDay: string, toDay: string): TopMuscle | null {
+  const rows = db.getAllSync<{ muscle_group: string; c: number }>(
     `SELECT e.muscle_group, COUNT(s.id) AS c
      FROM sets s JOIN exercises e ON e.id = s.exercise_id
-     WHERE s.created_at >= datetime('now', '-30 days')
-     GROUP BY e.muscle_group ORDER BY c DESC LIMIT 1`,
+     JOIN workouts w ON w.id = s.workout_id
+     WHERE w.date BETWEEN ? AND ?
+     GROUP BY e.muscle_group ORDER BY c DESC`,
+    [fromDay, toDay],
   );
-  const total = db.getFirstSync<{ c: number }>(
-    `SELECT COUNT(DISTINCT w.date) AS c
-     FROM workouts w JOIN sets s ON s.workout_id = w.id`,
-  );
-
-  return {
-    workoutsThisMonth: w?.c ?? 0,
-    volumeThisMonth: Math.round(vol?.v ?? 0),
-    topMuscle: muscle?.muscle_group ?? null,
-    totalWorkouts: total?.c ?? 0,
-  };
+  if (rows.length === 0) return null;
+  const total = rows.reduce((a, r) => a + r.c, 0);
+  const top = rows[0];
+  return { muscleGroup: top.muscle_group, sets: top.c, pct: Math.round((top.c / total) * 100) };
 }
 
 export interface ExerciseProgressPoint {

@@ -27,9 +27,8 @@ type Row = { type: 'header'; title: string } | { type: 'item'; ex: Exercise };
 /** Kas grubuna göre gruplanmış, aranabilir hareket seçici. Yeni hareket de eklenebilir. */
 export function ExercisePicker({ visible, onClose, onSelect }: Props) {
   const [query, setQuery] = useState('');
-  const [version, setVersion] = useState(0); // yeni ekleyince listeyi tazele
-
-  const exercises = useMemo(() => listExercises(), [version, visible]);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const refresh = () => setExercises(listExercises());
 
   const rows = useMemo<Row[]>(() => {
     const q = query.trim().toLowerCase();
@@ -58,13 +57,19 @@ export function ExercisePicker({ visible, onClose, onSelect }: Props) {
     const name = query.trim();
     const id = addExercise(name, 'Diğer');
     setQuery('');
-    setVersion((v) => v + 1);
+    refresh();
     onSelect(id, name);
     onClose();
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+      onShow={refresh}
+      onDismiss={onClose}>
       <View style={styles.container}>
         <SafeAreaView edges={['top']} style={{ flex: 1 }}>
           <View style={styles.topbar}>

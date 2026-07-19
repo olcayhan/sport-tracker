@@ -14,6 +14,8 @@ export interface Workout {
   note: string | null;
 }
 
+export type SetType = 'normal' | 'dropset';
+
 export interface WorkoutSet {
   id: number;
   workout_id: number;
@@ -22,6 +24,7 @@ export interface WorkoutSet {
   reps: number;
   weight: number;
   rpe: number | null;
+  set_type: SetType;
   created_at: string;
 }
 

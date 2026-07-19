@@ -1,6 +1,7 @@
 import { Alert, Modal, Pressable, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import type { SetType } from '@/db/types';
 import { colors, radius, spacing } from '@/theme';
 
 import { QuickSetInput } from './quick-set-input';
@@ -13,6 +14,8 @@ interface Props {
   weight: string;
   onReps: (v: string) => void;
   onWeight: (v: string) => void;
+  setType: SetType;
+  onToggleSetType: () => void;
   onSave: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -26,6 +29,8 @@ export function EditSetModal({
   weight,
   onReps,
   onWeight,
+  setType,
+  onToggleSetType,
   onSave,
   onDelete,
   onClose,
@@ -75,6 +80,8 @@ export function EditSetModal({
                 onWeight={onWeight}
                 onCommit={onSave}
                 label="Kaydet"
+                setType={setType}
+                onToggleSetType={onToggleSetType}
               />
             </View>
 

@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { StyleSheet, Text, TextStyle, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextStyle, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, typography } from '@/theme';
@@ -63,6 +63,43 @@ export function T({
   );
 }
 
+/** Veri henüz gelmedi — kısa yanıp sönmeyi önlemek için boş/hatalı durumdan ayrı tutulur. */
+export function LoadingState({ label = 'Yükleniyor…' }: { label?: string }) {
+  return (
+    <View style={styles.stateWrap}>
+      <ActivityIndicator color={colors.textSecondary} />
+      <T variant="subhead" style={{ marginTop: spacing.sm }}>
+        {label}
+      </T>
+    </View>
+  );
+}
+
+/** Veri okunamadı (ör. beklenmeyen DB hatası) — kullanıcıyı bilgilendirip tekrar denetir. */
+export function ErrorState({
+  message = 'Veriler yüklenemedi.',
+  onRetry,
+}: {
+  message?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <View style={styles.stateWrap}>
+      <Text style={{ fontSize: 28 }}>⚠️</Text>
+      <T variant="subhead" style={styles.errorMessage}>
+        {message}
+      </T>
+      {onRetry && (
+        <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.85}>
+          <T variant="headline" color="#fff">
+            Tekrar Dene
+          </T>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   safe: { flex: 1 },
@@ -83,5 +120,22 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     marginBottom: spacing.sm,
     marginTop: spacing.lg,
+  },
+  stateWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxl,
+    paddingHorizontal: spacing.xl,
+  },
+  errorMessage: {
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  retryBtn: {
+    backgroundColor: colors.move,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
   },
 });

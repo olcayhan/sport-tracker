@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
+import type { SetType } from '@/db/types';
 import { colors, radius, spacing } from '@/theme';
 
 import { T } from './ui';
@@ -66,13 +67,26 @@ interface Props {
   onWeight: (v: string) => void;
   onCommit: () => void;
   label?: string;
+  setType?: SetType;
+  onToggleSetType?: () => void;
 }
 
 /** Tekrar + ağırlık girişi ve dev "Set Ekle" butonu (başarılı kayıtta haptic). */
-export function QuickSetInput({ reps, weight, onReps, onWeight, onCommit, label = 'Set Ekle' }: Props) {
+export function QuickSetInput({
+  reps,
+  weight,
+  onReps,
+  onWeight,
+  onCommit,
+  label = 'Set Ekle',
+  setType,
+  onToggleSetType,
+}: Props) {
   const handleCommit = () => {
     onCommit();
   };
+
+  const isDropset = setType === 'dropset';
 
   return (
     <View>
@@ -88,6 +102,20 @@ export function QuickSetInput({ reps, weight, onReps, onWeight, onCommit, label 
           allowDecimal
         />
       </View>
+
+      {onToggleSetType && (
+        <TouchableOpacity
+          style={[styles.dropsetChip, isDropset && styles.dropsetChipActive]}
+          onPress={() => {
+            Haptics.selectionAsync();
+            onToggleSetType();
+          }}
+          activeOpacity={0.8}>
+          <T variant="subhead" color={isDropset ? colors.text : colors.textSecondary}>
+            {isDropset ? '✓ Drop Set' : 'Drop Set'}
+          </T>
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity style={styles.addBtn} onPress={handleCommit} activeOpacity={0.85}>
         <T variant="headline" color="#fff">
@@ -132,5 +160,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingVertical: spacing.lg,
     alignItems: 'center',
+  },
+  dropsetChip: {
+    marginTop: spacing.md,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.cardElevated,
+  },
+  dropsetChipActive: {
+    backgroundColor: colors.purple,
   },
 });

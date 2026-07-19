@@ -5,25 +5,12 @@ import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-nat
 import { EditSetModal } from '@/components/edit-set-modal';
 import { ExercisePicker } from '@/components/exercise-picker';
 import { QuickSetInput } from '@/components/quick-set-input';
+import { SetBadge } from '@/components/set-badge';
 import { Card, Screen, ScreenTitle, T } from '@/components/ui';
-import type { SetWithExercise } from '@/db/types';
+import { groupByExercise } from '@/lib/group-by-exercise';
 import { localDay, prettyDate } from '@/lib/date';
 import { useSession } from '@/store/session';
 import { colors, radius, spacing } from '@/theme';
-
-/** Setleri hareket bazında grupla (girildikleri sırayı koruyarak). */
-function groupByExercise(sets: SetWithExercise[]) {
-  const order: number[] = [];
-  const map = new Map<number, { name: string; muscle: string; items: SetWithExercise[] }>();
-  for (const s of sets) {
-    if (!map.has(s.exercise_id)) {
-      map.set(s.exercise_id, { name: s.exercise_name, muscle: s.muscle_group, items: [] });
-      order.push(s.exercise_id);
-    }
-    map.get(s.exercise_id)!.items.push(s);
-  }
-  return order.map((id) => ({ id, ...map.get(id)! }));
-}
 
 export default function TodayScreen() {
   const {
@@ -34,16 +21,21 @@ export default function TodayScreen() {
     weight,
     setReps,
     setWeight,
+    setType,
+    toggleSetType,
     commitSet,
     removeSet,
+    cycleSetType,
     selectExercise,
     deselectExercise,
     editingSet,
     editReps,
     editWeight,
+    editSetType,
     startEditSet,
     setEditReps,
     setEditWeight,
+    toggleEditSetType,
     saveEditSet,
     cancelEditSet,
   } = useSession();
@@ -122,6 +114,8 @@ export default function TodayScreen() {
                 onReps={setReps}
                 onWeight={setWeight}
                 onCommit={handleCommit}
+                setType={setType}
+                onToggleSetType={toggleSetType}
               />
             </Card>
           </View>
@@ -162,7 +156,7 @@ export default function TodayScreen() {
               {g.items.map((s) => (
                 <TouchableOpacity
                   key={s.id}
-                  style={styles.setRow}
+                  style={[styles.setRow, s.set_type === 'dropset' && styles.setRowDropset]}
                   onPress={() => startEditSet(s)}
                   onLongPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -171,11 +165,11 @@ export default function TodayScreen() {
                       { text: 'Sil', style: 'destructive', onPress: () => removeSet(s.id) },
                     ]);
                   }}>
-                  <View style={styles.setBadge}>
-                    <T variant="footnote" color={colors.textSecondary}>
-                      {s.set_number}
-                    </T>
-                  </View>
+                  <SetBadge
+                    setNumber={s.set_number}
+                    setType={s.set_type}
+                    onPress={() => cycleSetType(s.id)}
+                  />
                   <T variant="body" style={{ flex: 1 }}>
                     {s.reps} tekrar
                   </T>
@@ -208,6 +202,8 @@ export default function TodayScreen() {
         weight={editWeight}
         onReps={setEditReps}
         onWeight={setEditWeight}
+        setType={editSetType}
+        onToggleSetType={toggleEditSetType}
         onSave={handleSaveEdit}
         onDelete={() => {
           if (editingSet) removeSet(editingSet.id);
@@ -257,13 +253,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.separator,
   },
-  setBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.pill,
-    backgroundColor: colors.cardElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
+  setRowDropset: {
+    marginLeft: spacing.md,
   },
   empty: { paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg },
 });

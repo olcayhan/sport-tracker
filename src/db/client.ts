@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sets (
   reps        INTEGER NOT NULL,
   weight      REAL NOT NULL DEFAULT 0,
   rpe         REAL,
+  set_type    TEXT NOT NULL DEFAULT 'normal',
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -60,10 +61,19 @@ const SEED_EXERCISES: { name: string; muscle_group: string }[] = [
 
 let initialized = false;
 
+/** Var olan kurulumlarda 'sets' tablosuna set_type sütununu ekler (yeni kurulumlarda no-op). */
+function ensureSetTypeColumn(): void {
+  const cols = db.getAllSync<{ name: string }>('PRAGMA table_info(sets)');
+  if (!cols.some((c) => c.name === 'set_type')) {
+    db.execSync("ALTER TABLE sets ADD COLUMN set_type TEXT NOT NULL DEFAULT 'normal'");
+  }
+}
+
 /** Uygulama açılışında bir kez çağrılır: şema + tohumlama. */
 export function initDatabase(): void {
   if (initialized) return;
   db.execSync(SCHEMA);
+  ensureSetTypeColumn();
 
   const row = db.getFirstSync<{ c: number }>('SELECT COUNT(*) AS c FROM exercises');
   if (!row || row.c === 0) {

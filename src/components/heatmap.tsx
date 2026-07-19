@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import type { DayActivity } from '@/db/repositories/stats';
 import { addDays, localDay, parseDay, shortMonth } from '@/lib/date';
@@ -9,13 +9,25 @@ import { T } from './ui';
 
 const CELL = 13;
 const GAP = 3;
+const RECENT_CELL = 30;
+const RECENT_GAP = 6;
+const RECENT_WINDOW_DAYS = 30;
 const WEEKDAYS = ['Pzt', '', 'Çar', '', 'Cum', '', 'Paz'];
 
-export type HeatMode = 'year' | 'month';
+// Başlık satırı her iki ızgarada da aynı sabit yüksekliği alır (yazı tipi metriklerine bağlı kalmadan).
+const HEADER_HEIGHT = 16;
+// Son 30 gün penceresi hizalamaya bağlı olarak en fazla 6 hafta satırına yayılabilir; Yıllık
+// ızgara bu en yüksek duruma göre ortalanır, böylece sekme değişince kart boyu sabit kalır.
+const RECENT_MAX_ROWS = 6;
+const GRID_AREA_HEIGHT =
+  HEADER_HEIGHT + RECENT_GAP + RECENT_MAX_ROWS * RECENT_CELL + (RECENT_MAX_ROWS - 1) * RECENT_GAP;
+
+export type HeatMode = 'year' | 'recent';
 
 interface Props {
   data: DayActivity[];
   mode: HeatMode;
+  onSelectDay?: (day: string) => void;
 }
 
 /** volume → 0..4 yoğunluk seviyesi (aralıktaki en yükseğe göre). */
@@ -33,7 +45,7 @@ function mondayIndex(d: Date): number {
   return (d.getDay() + 6) % 7;
 }
 
-export function Heatmap({ data, mode }: Props) {
+export function Heatmap({ data, mode, onSelectDay }: Props) {
   const scrollRef = useRef<ScrollView>(null);
 
   const byDay = useMemo(() => {
@@ -44,10 +56,15 @@ export function Heatmap({ data, mode }: Props) {
 
   const max = useMemo(() => data.reduce((a, d) => Math.max(a, d.volume), 0), [data]);
 
-  if (mode === 'year') {
-    return <YearGrid byDay={byDay} max={max} scrollRef={scrollRef} />;
-  }
-  return <MonthGrid byDay={byDay} max={max} />;
+  return (
+    <View style={styles.gridArea}>
+      {mode === 'year' ? (
+        <YearGrid byDay={byDay} max={max} scrollRef={scrollRef} onSelectDay={onSelectDay} />
+      ) : (
+        <RecentGrid byDay={byDay} max={max} onSelectDay={onSelectDay} />
+      )}
+    </View>
+  );
 }
 
 /* ----------------------------- Yıllık ızgara ----------------------------- */
@@ -56,10 +73,12 @@ function YearGrid({
   byDay,
   max,
   scrollRef,
+  onSelectDay,
 }: {
   byDay: Map<string, number>;
   max: number;
   scrollRef: React.RefObject<ScrollView | null>;
+  onSelectDay?: (day: string) => void;
 }) {
   const { weeks, monthLabels } = useMemo(() => {
     const today = localDay();
@@ -108,7 +127,7 @@ function YearGrid({
       onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}>
       <View>
         {/* Ay etiketleri */}
-        <View style={styles.monthRow}>
+        <View style={styles.monthLabelRow}>
           {weeks.map((_, i) => {
             const label = monthLabels.find((m) => m.col === i)?.label ?? '';
             return (
@@ -120,11 +139,15 @@ function YearGrid({
             );
           })}
         </View>
-        <View style={{ flexDirection: 'row' }}>
+        <View style={{ flexDirection: 'row', gap: GAP }}>
           {weeks.map((week, i) => (
-            <View key={i} style={{ marginRight: GAP }}>
+            <View key={i} style={{ gap: GAP }}>
               {week.map((cell, r) => (
-                <Cell key={r} level={cell.level} />
+                <Cell
+                  key={r}
+                  level={cell.level}
+                  onPress={cell.level >= 0 ? () => onSelectDay?.(cell.date) : undefined}
+                />
               ))}
             </View>
           ))}
@@ -134,78 +157,95 @@ function YearGrid({
   );
 }
 
-/* ----------------------------- Aylık ızgara ------------------------------ */
+/* --------------------------- Son 30 gün ızgarası -------------------------- */
 
-function MonthGrid({ byDay, max }: { byDay: Map<string, number>; max: number }) {
-  const { rows, monthTitle } = useMemo(() => {
-    const today = parseDay(localDay());
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const first = new Date(year, month, 1);
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const lead = mondayIndex(first); // baştaki boş kutular
+function RecentGrid({
+  byDay,
+  max,
+  onSelectDay,
+}: {
+  byDay: Map<string, number>;
+  max: number;
+  onSelectDay?: (day: string) => void;
+}) {
+  const weeks = useMemo(() => {
+    const today = localDay();
+    const windowStart = addDays(today, -(RECENT_WINDOW_DAYS - 1)); // bugün dahil son 30 gün
+    // Pencereyi tam haftalar halinde göstermek için başlangıcı Pazartesi'ye hizala.
+    let start = addDays(windowStart, -mondayIndex(parseDay(windowStart)));
 
-    const cells: ({ date: string; level: number } | null)[] = [];
-    for (let i = 0; i < lead; i++) cells.push(null);
-    for (let day = 1; day <= daysInMonth; day++) {
-      const d = localDay(new Date(year, month, day));
-      const isFuture = parseDay(d) > parseDay(localDay());
-      cells.push({ date: d, level: isFuture ? -1 : levelFor(byDay.get(d) ?? 0, max) });
+    const weeks: { date: string; level: number }[][] = [];
+    let cursor = start;
+    while (parseDay(cursor) <= parseDay(today)) {
+      const week: { date: string; level: number }[] = [];
+      for (let r = 0; r < 7; r++) {
+        const d = cursor;
+        const dt = parseDay(d);
+        // Pencere dışı (hizalama için eklenen geçmiş günler ya da bu haftanın henüz gelmemiş günleri).
+        const outsideWindow = dt < parseDay(windowStart) || dt > parseDay(today);
+        week.push({
+          date: d,
+          level: outsideWindow ? -1 : levelFor(byDay.get(d) ?? 0, max),
+        });
+        cursor = addDays(cursor, 1);
+      }
+      weeks.push(week);
     }
-    while (cells.length % 7 !== 0) cells.push(null);
-
-    const rows: (typeof cells)[] = [];
-    for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
-
-    const monthNames = [
-      'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-      'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
-    ];
-    return { rows, monthTitle: `${monthNames[month]} ${year}` };
+    return weeks;
   }, [byDay, max]);
 
   return (
     <View>
       <T variant="headline" style={{ marginBottom: spacing.md }}>
-        {monthTitle}
+        Son 30 Gün
       </T>
-      <View style={styles.weekdayRow}>
-        {WEEKDAYS.map((w, i) => (
-          <View key={i} style={styles.monthCellWrap}>
-            <T variant="caption" style={{ fontSize: 10 }}>
-              {w || '·'}
-            </T>
-          </View>
-        ))}
-      </View>
-      {rows.map((row, i) => (
-        <View key={i} style={{ flexDirection: 'row' }}>
-          {row.map((cell, r) => (
-            <View key={r} style={styles.monthCellWrap}>
-              {cell ? <Cell level={cell.level} big /> : <View style={{ width: CELL * 1.6, height: CELL * 1.6 }} />}
+      <View style={styles.recentGrid}>
+        <View style={styles.recentHeaderRow}>
+          {WEEKDAYS.map((w, i) => (
+            <View key={i} style={styles.recentCellWrap}>
+              <T variant="caption" style={{ fontSize: 10 }}>
+                {w || '·'}
+              </T>
             </View>
           ))}
         </View>
-      ))}
+        {weeks.map((week, i) => (
+          <View key={i} style={styles.recentRow}>
+            {week.map((cell, r) => (
+              <View key={r} style={styles.recentCellWrap}>
+                <Cell
+                  level={cell.level}
+                  big
+                  onPress={cell.level >= 0 ? () => onSelectDay?.(cell.date) : undefined}
+                />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
 
 /* ------------------------------- Hücre ---------------------------------- */
 
-function Cell({ level, big }: { level: number; big?: boolean }) {
-  const size = big ? CELL * 1.6 : CELL;
+function Cell({ level, big, onPress }: { level: number; big?: boolean; onPress?: () => void }) {
+  const size = big ? RECENT_CELL : CELL;
   const bg = level < 0 ? 'transparent' : colors.heat[level];
+  const box = {
+    width: size,
+    height: size,
+    borderRadius: big ? radius.sm : 3,
+    backgroundColor: bg,
+    // Boş günler zeminle aynı renkte olduğu için kutucuk sınırı olmadan görünmez oluyor;
+    // aynı tondan ince bir kenarlık ızgarayı okunur kılar, dolu günlerle kontrastı bozmaz.
+    ...(level === 0 ? { borderWidth: 1, borderColor: colors.separator } : null),
+  };
+  if (!onPress) return <View style={box} />;
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        marginBottom: GAP,
-        borderRadius: big ? radius.sm : 3,
-        backgroundColor: bg,
-      }}
-    />
+    <Pressable onPress={onPress} hitSlop={2}>
+      <View style={box} />
+    </Pressable>
   );
 }
 
@@ -223,12 +263,15 @@ export function HeatLegend() {
 }
 
 const styles = StyleSheet.create({
-  monthRow: { flexDirection: 'row', marginBottom: spacing.xs },
-  weekdayRow: { flexDirection: 'row', marginBottom: spacing.xs },
-  monthCellWrap: {
-    flex: 1,
+  gridArea: { minHeight: GRID_AREA_HEIGHT, justifyContent: 'center' },
+  monthLabelRow: { flexDirection: 'row', height: HEADER_HEIGHT, marginBottom: spacing.xs },
+  recentGrid: { alignItems: 'center', gap: RECENT_GAP },
+  recentHeaderRow: { flexDirection: 'row', height: HEADER_HEIGHT },
+  recentRow: { flexDirection: 'row', gap: RECENT_GAP },
+  recentCellWrap: {
+    width: RECENT_CELL,
     alignItems: 'center',
-    marginBottom: GAP,
+    justifyContent: 'center',
   },
   legend: {
     flexDirection: 'row',
