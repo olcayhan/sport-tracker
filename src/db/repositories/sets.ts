@@ -37,7 +37,7 @@ export function setsForDay(day: string): SetWithExercise[] {
      JOIN exercises e ON e.id = s.exercise_id
      JOIN workouts w ON w.id = s.workout_id
      WHERE w.date = ?
-     ORDER BY s.id ASC`,
+     ORDER BY s.id DESC`,
     [day],
   );
 }
